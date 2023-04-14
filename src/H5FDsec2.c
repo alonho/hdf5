@@ -796,6 +796,7 @@ H5FD__sec2_write(H5FD_t *_file, H5FD_mem_t H5_ATTR_UNUSED type, hid_t H5_ATTR_UN
     H5FD_sec2_t *file      = (H5FD_sec2_t *)_file;
     HDoff_t      offset    = (HDoff_t)addr;
     herr_t       ret_value = SUCCEED; /* Return value */
+    hbool_t      continued = addr == file->pos;
 
     FUNC_ENTER_PACKAGE
 
@@ -863,6 +864,20 @@ H5FD__sec2_write(H5FD_t *_file, H5FD_mem_t H5_ATTR_UNUSED type, hid_t H5_ATTR_UN
         addr += (haddr_t)bytes_wrote;
         buf = (const char *)buf + bytes_wrote;
     } /* end while */
+
+    if (!continued) {
+        int syncres = fdatasync(file->fd); // flush NFS dirty pages
+        if (syncres != 0) {
+            int    myerrno = errno;
+            time_t mytime  = HDtime(NULL);
+
+            HGOTO_ERROR(H5E_IO, H5E_WRITEERROR, FAIL,
+                        "fdatasync failed: time = %s, filename = '%s', file descriptor = %d, errno = %d, "
+                        "error message = '%s', buf = %p, total write size = %llu, offset = %llu",
+                        HDctime(&mytime), file->filename, file->fd, myerrno, HDstrerror(myerrno), buf,
+                        (unsigned long long)size, (unsigned long long)offset);
+        }
+    }
 
     /* Update current position and eof */
     file->pos = addr;
